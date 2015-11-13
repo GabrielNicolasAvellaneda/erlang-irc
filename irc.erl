@@ -34,12 +34,13 @@
 %% The server process will be registered by the name "ircd"
 
 -module(irc).
--export([start_server/0, server_loop/1]).
+-export([start_server/0, server_loop/1, client_loop/1,connect/1]).
 
 %% Change this to specify the node where the server runs.
 %% TODO: This can be set in a different way at runtime using a config file or by command line argument when converting this to an Application.
 -define(SERVER_NODE, 'server@vagrant-unbuntu-trusty-64').
 -define(SERVER_INSTANCE_NAME, irc_server).
+-define(CLIENT_INSTANCE_NAME, irc_client).
 
 %% @doc Start the server process and register it with known name.
 start_server() ->
@@ -49,4 +50,16 @@ start_server() ->
 server_loop(User_List) ->
 	server_loop(User_List).
 
+connect(Nickname) ->
+	case whereis(?CLIENT_INSTANCE_NAME) of
+		undefined ->
+			error_logger:info_msg("Creating client process under name: ~s~n", [?CLIENT_INSTANCE_NAME]),
+		       	register(?CLIENT_INSTANCE_NAME, spawn(irc, client_loop, [Nickname]));
+		_ -> 
+			error_logger:error_msg("Client process under name ~s already exists.~n", [?CLIENT_INSTANCE_NAME]),
+		   	already_connected
+	end.
+
+client_loop(Nickname) ->
+	client_loop(Nickname).
 
