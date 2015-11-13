@@ -1,6 +1,6 @@
 %% A Minimal IRC with plain Erlang
 %%
-%% User Interface:
+%% Functional Interface/User Interface:
 %% connect(Nickname)
 %% 	One user at a time can connect to the IRC Server from each Erlang node. If the Name already exist it will reject the connection with a suitable error message.
 %%
@@ -34,8 +34,19 @@
 %% The server process will be registered by the name "ircd"
 
 -module(irc).
--export([server_start/0]).
+-export([start_server/0, server_loop/1]).
 
-server_start() ->
-	ok.
+%% Change this to specify the node where the server runs.
+%% TODO: This can be set in a different way at runtime using a config file or by command line argument when converting this to an Application.
+-define(SERVER_NODE, 'server@vagrant-unbuntu-trusty-64').
+-define(SERVER_INSTANCE_NAME, irc_server).
+
+%% @doc Start the server process and register it with known name.
+start_server() ->
+	error_logger:info_msg("Creating server process under name: ~s~n", [?SERVER_INSTANCE_NAME]),
+	register(?SERVER_INSTANCE_NAME, spawn(irc, server_loop, [[]])).
+
+server_loop(User_List) ->
+	server_loop(User_List).
+
 
