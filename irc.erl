@@ -51,11 +51,12 @@ server_loop(User_List) ->
 	receive
 		{From, connect, Nickname} ->
 			error_logger:info_msg("Server > Received a connect message from ~s", [Nickname]),
-		       	Updated_User_List = server_handle_connect(User_List, Nickname)
+		       	Updated_User_List = server_handle_connect(From, User_List, Nickname)
 	end,
 	server_loop(Updated_User_List).
 
-server_handle_connect(User_List, Nickname) ->
+server_handle_connect(From, User_List, Nickname) ->
+	From ! { ?SERVER_INSTANCE_NAME, connected}, 
 	[Nickname | User_List].
 
 connect(Nickname) ->
