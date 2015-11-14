@@ -34,7 +34,7 @@
 %% The server process will be registered by the name "ircd"
 
 -module(irc).
--export([start_server/0, server_loop/1, client/1, client_loop/1,connect/1]).
+-export([start_server/0, server_loop/1, client/1, client_loop/1,connect/1,list/0]).
 
 %% Change this to specify the node where the server runs.
 %% TODO: This can be set in a different way at runtime using a config file or by command line argument when converting this to an Application.
@@ -54,7 +54,11 @@ server_loop(ServerState) ->
 	receive
 		{From, connect, Nickname} ->
 			error_logger:info_msg("Server > Received a connect message from ~s", [Nickname]),
-		       	UpdatedServerState = server_handle_connect(From, ServerState, Nickname)
+		       	UpdatedServerState = server_handle_connect(From, ServerState, Nickname);
+		{From, list} ->
+			error_logger:info_msg("Server > Received a list message~n"),
+			UpdatedServerState = server_handle_list(From, ServerState)
+
 	end,
 	server_loop(UpdatedServerState).
 
@@ -74,6 +78,10 @@ server_handle_connect(Sender, ServerState = #server_state{users = Users}, Nickna
 			ServerState
 	end.
 
+server_handle_list(Sender, ServerState = #server_state{channels=ChannelList}) ->
+	server_tell(Sender, {list_response, ChannelList}),
+	ServerState.
+
 connect(Nickname) ->
 	case whereis(?CLIENT_INSTANCE_NAME) of
 		undefined ->
@@ -82,6 +90,13 @@ connect(Nickname) ->
 		_ -> 
 			error_logger:error_msg("Client > Client process under name ~s already exists.~n", [?CLIENT_INSTANCE_NAME]),
 		   	already_connected
+	end.
+
+list() ->
+	{?SERVER_INSTANCE_NAME, ?SERVER_NODE} ! {self(), list},
+	receive
+		{?SERVER_INSTANCE_NAME, {list_response, ChannelList}} ->
+			error_logger:info_msg("Client > Received list of channels from server ~p~n", [ChannelList])
 	end.
 
 client(Nickname) ->
