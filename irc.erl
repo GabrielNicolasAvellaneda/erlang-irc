@@ -55,9 +55,18 @@ server_loop(User_List) ->
 	end,
 	server_loop(Updated_User_List).
 
-server_handle_connect(From, User_List, Nickname) ->
-	From ! { ?SERVER_INSTANCE_NAME, connected}, 
-	[Nickname | User_List].
+server_tell(To, Message) ->
+	To ! {?SERVER_INSTANCE_NAME, Message}.
+
+server_handle_connect(Sender, User_List, Nickname) ->
+	case lists:keymember(Nickname, 2, User_List) of
+	       false ->
+			server_tell(Sender, connected),
+			[{Sender, Nickname} | User_List];
+		true ->
+			server_tell(Sender, {stop, user_exists_at_other_node}),
+			User_List
+	end.
 
 connect(Nickname) ->
 	case whereis(?CLIENT_INSTANCE_NAME) of
@@ -77,7 +86,7 @@ client(Nickname) ->
 
 await_result() ->
 	receive
-		{?SERVER_INSTANCE_NAME, stop, Why} ->
+		{?SERVER_INSTANCE_NAME, {stop, Why}} ->
 			error_logger:error_msg("Client > Server says to stop. Exiting because of ~p~n", [Why]),
 			exit(normal);
 		{?SERVER_INSTANCE_NAME, What} ->
