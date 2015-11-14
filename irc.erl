@@ -67,22 +67,38 @@ server_loop(ServerState) ->
 server_tell(To, Message) ->
 	To ! {?SERVER_INSTANCE_NAME, Message}.
 
+%% @doc get users from server_state 
 server_state_users(#server_state{users = Users}) -> Users.
 
+%% @doc set users on server_state
 server_state_users(ServerState, UpdatedUsers) -> ServerState#server_state{users = UpdatedUsers}.
 
+%% @doc check if a user exists
+server_state_has_user(ServerState, {_Sender, Nickname}) -> lists:keymember(Nickname, 2, server_state_users(ServerState)).
+
+%% @doc get channels from server_state
 server_state_channels(#server_state{channels = Channels}) -> Channels.
 
-%% TODO: Separete concerns, here we have message handling logic mixed with Structure/State update.
+%% @doc set channels to server_state
+server_state_channels(ServerState, UpdatedChannels) -> ServerState#server_state{channels = UpdatedChannels}.
+
+%% @doc add user to server_state if the user is not already registered. This is business logic. 
+may_add_user_to_server_state(ServerState, User) -> 
+	case server_state_has_user(ServerState, User) of
+	      	true -> {error, user_already_exists};
+		false ->
+			UserList = server_state_users(ServerState),
+	 		UpdatedUsers = [User | UserList],
+			{ok, server_state_users(ServerState, UpdatedUsers)}
+	end.
+
+%% @doc Handle a connect message
 server_handle_connect(Sender, ServerState, Nickname) ->
-	Users = server_state_users(ServerState),
-	case lists:keymember(Nickname, 2, Users) of
-	       false ->
+	case may_add_user_to_server_state(ServerState, {Sender, Nickname}) of
+		{ok, UpdatedServerState} ->
 			server_tell(Sender, connected),
-			UpdatedUsers = [{Sender, Nickname} | Users],
-			UpdatedServerState = ServerState#server_state{users=UpdatedUsers},
 			UpdatedServerState;
-		true ->
+		{error, user_already_exists} ->
 			server_tell(Sender, {stop, user_exists_at_other_node}),
 			ServerState
 	end.
