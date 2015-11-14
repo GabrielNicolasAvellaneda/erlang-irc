@@ -34,7 +34,7 @@
 %% The server process will be registered by the name "ircd"
 
 -module(irc).
--export([start_server/0, server_loop/1, client/1, client_loop/1,connect/1,list/0]).
+-export([start_server/0, server_loop/1, client/1, client_loop/1,connect/1,list/0,join/1]).
 
 %% Change this to specify the node where the server runs.
 %% TODO: This can be set in a different way at runtime using a config file or by command line argument when converting this to an Application.
@@ -57,8 +57,10 @@ server_loop(ServerState) ->
 		       	UpdatedServerState = server_handle_connect(From, ServerState, Nickname);
 		{From, list} ->
 			error_logger:info_msg("Server > Received a list message~n"),
-			UpdatedServerState = server_handle_list(From, ServerState)
-
+			UpdatedServerState = server_handle_list(From, ServerState);
+		{From, join, ChannelName} ->
+			error_logger:info_msg("Server > Received a join(~s) message", [ChannelName]),
+			UpdatedServerState = server_handle_join(From, ServerState, ChannelName)
 	end,
 	server_loop(UpdatedServerState).
 
@@ -82,6 +84,12 @@ server_handle_list(Sender, ServerState = #server_state{channels=ChannelList}) ->
 	server_tell(Sender, {list_response, ChannelList}),
 	ServerState.
 
+server_handle_join(Sender, ServerState = #server_state{channels=ChannelList}, ChannelName) ->
+	UpdatedChannelList = [ChannelName | ChannelList],
+	UpdatedServerState = ServerState#server_state{channels=UpdatedChannelList},
+	server_tell(Sender, {join_response, ok}),
+	UpdatedServerState.
+
 connect(Nickname) ->
 	case whereis(?CLIENT_INSTANCE_NAME) of
 		undefined ->
@@ -98,6 +106,12 @@ list() ->
 		{?SERVER_INSTANCE_NAME, {list_response, ChannelList}} ->
 			error_logger:info_msg("Client > Received list of channels from server ~p~n", [ChannelList])
 	end.
+
+
+join(ChannelName) ->
+	error_logger:info_msg("Client > Sending join(~s) command to server", [ChannelName]),
+	{?SERVER_INSTANCE_NAME, ?SERVER_NODE} ! {self(), join, ChannelName},
+	await_result().
 
 client(Nickname) ->
 	error_logger:info_msg("Client > Sending connect command to server using Nickname ~s", [Nickname]),
