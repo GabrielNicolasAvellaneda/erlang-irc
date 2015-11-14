@@ -42,30 +42,36 @@
 -define(SERVER_INSTANCE_NAME, irc_server).
 -define(CLIENT_INSTANCE_NAME, irc_client).
 
+-record(irc_channel, {name, topic="", users = []}).
+-record(server_state, {users = [], channels = []}).
+
 %% @doc Start the server process and register it with known name.
 start_server() ->
 	error_logger:info_msg("Server > Creating server process under name: ~s~n", [?SERVER_INSTANCE_NAME]),
-	register(?SERVER_INSTANCE_NAME, spawn(irc, server_loop, [[]])).
+	register(?SERVER_INSTANCE_NAME, spawn(irc, server_loop, [#server_state{}])).
 
-server_loop(User_List) ->
+server_loop(ServerState) ->
 	receive
 		{From, connect, Nickname} ->
 			error_logger:info_msg("Server > Received a connect message from ~s", [Nickname]),
-		       	Updated_User_List = server_handle_connect(From, User_List, Nickname)
+		       	UpdatedServerState = server_handle_connect(From, ServerState, Nickname)
 	end,
-	server_loop(Updated_User_List).
+	server_loop(UpdatedServerState).
 
 server_tell(To, Message) ->
 	To ! {?SERVER_INSTANCE_NAME, Message}.
 
-server_handle_connect(Sender, User_List, Nickname) ->
-	case lists:keymember(Nickname, 2, User_List) of
+%% TODO: Separete concerns, here we have message handling logic mixed with Structure/State update.
+server_handle_connect(Sender, ServerState = #server_state{users = Users}, Nickname) ->
+	case lists:keymember(Nickname, 2, Users) of
 	       false ->
 			server_tell(Sender, connected),
-			[{Sender, Nickname} | User_List];
+			UpdatedUsers = [{Sender, Nickname} | Users],
+			UpdatedServerState = ServerState#server_state{users=UpdatedUsers},
+			UpdatedServerState;
 		true ->
 			server_tell(Sender, {stop, user_exists_at_other_node}),
-			User_List
+			ServerState
 	end.
 
 connect(Nickname) ->
