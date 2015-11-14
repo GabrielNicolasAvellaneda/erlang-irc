@@ -67,8 +67,15 @@ server_loop(ServerState) ->
 server_tell(To, Message) ->
 	To ! {?SERVER_INSTANCE_NAME, Message}.
 
+server_state_users(#server_state{users = Users}) -> Users.
+
+server_state_users(ServerState, UpdatedUsers) -> ServerState#server_state{users = UpdatedUsers}.
+
+server_state_channels(#server_state{channels = Channels}) -> Channels.
+
 %% TODO: Separete concerns, here we have message handling logic mixed with Structure/State update.
-server_handle_connect(Sender, ServerState = #server_state{users = Users}, Nickname) ->
+server_handle_connect(Sender, ServerState, Nickname) ->
+	Users = server_state_users(ServerState),
 	case lists:keymember(Nickname, 2, Users) of
 	       false ->
 			server_tell(Sender, connected),
