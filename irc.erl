@@ -120,8 +120,7 @@ channel_users(Channel = #channel{}, UpdatedUsers) -> Channel#channel{users=Updat
 may_add_user_to_server_state(ServerState, User) -> 
 	case server_state_has_user(ServerState, User) of
 	      	true -> {error, user_already_exists};
-		false ->
-			{ok, server_state_add_user(ServerState, User)}
+		false -> {ok, server_state_add_user(ServerState, User)}
 	end.
 
 server_state_channels_find_by_name(ServerState, ChannelName) ->
@@ -239,9 +238,14 @@ should_add_user_to_server_state_test() ->
 	?assert(server_state_get_users(UpdatedServerState) =:= [NewUser]).
 
 %% Tests for Server business rules.
-
-
-
+should_only_add_user_if_user_does_not_already_exists_test() ->
+	User = {user_pid, 'Vincent'},
+	ServerState = server_state_add_user(server_state_create(), User),
+	?assert({error, user_already_exists} =:= may_add_user_to_server_state(ServerState, User)),
+	?assert(length(server_state_get_users(ServerState)) =:= 1),
+	NewUser = {new_user_pid, 'Sandra'},
+	{ok, UpdatedServerState} = may_add_user_to_server_state(ServerState, NewUser),
+	?assert(length(server_state_get_users(UpdatedServerState)) =:= 2). 
 
 
 
