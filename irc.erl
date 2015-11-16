@@ -84,6 +84,13 @@ server_state_get_users(#server_state{users = Users}) -> Users.
 %% @doc set users on server_state
 server_state_set_users(ServerState, UpdatedUsers) -> ServerState#server_state{users = UpdatedUsers}.
 
+%% @doc add a user to the server_state
+-spec server_state_add_user(#server_state{}, tuple()) -> #server_state{}.
+server_state_add_user(ServerState, User) ->
+	UserList = server_state_get_users(ServerState),
+	UpdatedUsers = [User | UserList],
+	server_state_set_users(ServerState, UpdatedUsers).
+
 %% @doc check if a user exists
 server_state_has_user(ServerState, {_Sender, Nickname}) -> lists:keymember(Nickname, 2, server_state_get_users(ServerState)).
 
@@ -114,9 +121,7 @@ may_add_user_to_server_state(ServerState, User) ->
 	case server_state_has_user(ServerState, User) of
 	      	true -> {error, user_already_exists};
 		false ->
-			UserList = server_state_get_users(ServerState),
-	 		UpdatedUsers = [User | UserList],
-			{ok, server_state_set_users(ServerState, UpdatedUsers)}
+			{ok, server_state_add_user(ServerState, User)}
 	end.
 
 server_state_channels_find_by_name(ServerState, ChannelName) ->
@@ -226,6 +231,12 @@ should_set_users_to_server_state_test() ->
 	AllUsers = [{user_pid, 'Mike'}, {user_pid, 'Jonhhy'}],
 	UpdatedServerState = server_state_set_users(ServerState, AllUsers),
 	?assert(server_state_get_users(UpdatedServerState) =:= AllUsers).
+
+should_add_user_to_server_state_test() ->
+	ServerState = server_state_create(),
+	NewUser = {user_pid, "Emma"},
+	UpdatedServerState = server_state_add_user(ServerState, NewUser),
+	?assert(server_state_get_users(UpdatedServerState) =:= [NewUser]).
 
 %% Tests for Server business rules.
 
