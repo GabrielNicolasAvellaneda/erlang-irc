@@ -72,18 +72,23 @@ server_loop(ServerState) ->
 server_tell(To, Message) ->
 	To ! {?SERVER_INSTANCE_NAME, Message}.
 
+
+%% @doc Create a new server_state. Encapsulates server_state record creation.
+server_state_create() ->
+	#server_state{}.
+
 %% @doc get users from server_state 
--spec server_state_users(#server_state{})->list(tuple()).
-server_state_users(#server_state{users = Users}) -> Users.
+-spec server_state_get_users(#server_state{})->list(tuple()).
+server_state_get_users(#server_state{users = Users}) -> Users.
 
 %% @doc set users on server_state
-server_state_users(ServerState, UpdatedUsers) -> ServerState#server_state{users = UpdatedUsers}.
+server_state_set_users(ServerState, UpdatedUsers) -> ServerState#server_state{users = UpdatedUsers}.
 
 %% @doc check if a user exists
-server_state_has_user(ServerState, {_Sender, Nickname}) -> lists:keymember(Nickname, 2, server_state_users(ServerState)).
+server_state_has_user(ServerState, {_Sender, Nickname}) -> lists:keymember(Nickname, 2, server_state_get_users(ServerState)).
 
 %% @doc get a user from the server_state record.
-server_state_get_user_by_sender(ServerState, Sender) -> lists:keyfind(Sender, 1, server_state_users(ServerState)). 
+server_state_get_user_by_sender(ServerState, Sender) -> lists:keyfind(Sender, 1, server_state_get_users(ServerState)). 
 
 %% TODO: Optimize this to get the first match.
 %% TODO: How to specify types that returns records
@@ -109,9 +114,9 @@ may_add_user_to_server_state(ServerState, User) ->
 	case server_state_has_user(ServerState, User) of
 	      	true -> {error, user_already_exists};
 		false ->
-			UserList = server_state_users(ServerState),
+			UserList = server_state_get_users(ServerState),
 	 		UpdatedUsers = [User | UserList],
-			{ok, server_state_users(ServerState, UpdatedUsers)}
+			{ok, server_state_set_users(ServerState, UpdatedUsers)}
 	end.
 
 server_state_channels_find_by_name(ServerState, ChannelName) ->
@@ -207,16 +212,20 @@ client_loop(Nickname) ->
 
 %% Tests for Server state model manipulation.
 
+should_create_a_new_server_state_test() ->
+	ServerState = server_state_create(),
+	?assert(ServerState =:= #server_state{}).
+
 should_get_empty_users_for_a_newly_created_server_state_test() ->
-	ServerState = #server_state{},
-	?assert(server_state_users(ServerState) =:= []).
+	ServerState = server_state_create(),
+	?assert(server_state_get_users(ServerState) =:= []).
 
 should_set_users_to_server_state_test() ->
-	ServerState = #server_state{},
+	ServerState = server_state_create(), 
 	%% TODO: Define a User type and think about a value that can be used for testing in replacement for a User Pid (?maybe an atom?).
 	AllUsers = [{user_pid, 'Mike'}, {user_pid, 'Jonhhy'}],
-	UpdatedServerState = server_state_users(ServerState, AllUsers),
-	?assert(server_state_users(UpdatedServerState) =:= AllUsers).
+	UpdatedServerState = server_state_set_users(ServerState, AllUsers),
+	?assert(server_state_get_users(UpdatedServerState) =:= AllUsers).
 
 %% Tests for Server business rules.
 
