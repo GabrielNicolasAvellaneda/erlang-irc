@@ -33,8 +33,13 @@
 %%
 %% The server process will be registered by the name "ircd"
 
+
+%% Separation of concerns: Client logic, Server handling, Server business rules, State model management.
+
 -module(irc).
 -export([start_server/0, server_loop/1, client/1, client_loop/1,connect/1,list/0,join/1]).
+
+-include_lib("eunit/include/eunit.hrl").
 
 %% Change this to specify the node where the server runs.
 %% TODO: This can be set in a different way at runtime using a config file or by command line argument when converting this to an Application.
@@ -68,6 +73,7 @@ server_tell(To, Message) ->
 	To ! {?SERVER_INSTANCE_NAME, Message}.
 
 %% @doc get users from server_state 
+-spec server_state_users(#server_state{})->list(tuple()).
 server_state_users(#server_state{users = Users}) -> Users.
 
 %% @doc set users on server_state
@@ -198,4 +204,24 @@ await_result() ->
 
 client_loop(Nickname) ->
 	client_loop(Nickname).
+
+%% Tests for Server state model manipulation.
+
+should_get_empty_users_for_a_newly_created_server_state_test() ->
+	ServerState = #server_state{},
+	?assert(server_state_users(ServerState) =:= []).
+
+should_set_users_to_server_state_test() ->
+	ServerState = #server_state{},
+	%% TODO: Define a User type and think about a value that can be used for testing in replacement for a User Pid (?maybe an atom?).
+	AllUsers = [{user_pid, 'Mike'}, {user_pid, 'Jonhhy'}],
+	UpdatedServerState = server_state_users(ServerState, AllUsers),
+	?assert(server_state_users(UpdatedServerState) =:= AllUsers).
+
+%% Tests for Server business rules.
+
+
+
+
+
 
