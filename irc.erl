@@ -125,12 +125,12 @@ server_state_has_user(ServerState, User) ->
 	lists:any(fun (U) -> user_get_name(U) =:= Nickname end, server_state_get_users(ServerState)).
 
 -spec find(fun( (_) -> boolean()), [any()]) -> any() | 'false'. 
-%% TODO: Optimize this to get the first match.
-find(Pred, List) ->
-	Matches = lists:filter(Pred, List),
-	if
-		length(Matches) > 0 -> hd(Matches);
-		true -> false
+find(Pred, []) -> false; 
+find(Pred, [H|Tail]) ->
+	Result = Pred(H),
+	case Result of
+		true -> H;
+		false -> find(Pred, Tail)
 	end.
 
 %% @doc get a user from the server_state record.
