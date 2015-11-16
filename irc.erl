@@ -42,7 +42,7 @@
 -define(SERVER_INSTANCE_NAME, irc_server).
 -define(CLIENT_INSTANCE_NAME, irc_client).
 
--record(irc_channel, {name, topic="", users = []}).
+-record(channel, {name, topic="", users = []}).
 -record(server_state, {users = [], channels = []}).
 
 %% @doc Start the server process and register it with known name.
@@ -76,11 +76,27 @@ server_state_users(ServerState, UpdatedUsers) -> ServerState#server_state{users 
 %% @doc check if a user exists
 server_state_has_user(ServerState, {_Sender, Nickname}) -> lists:keymember(Nickname, 2, server_state_users(ServerState)).
 
+%% @doc get a user from the server_state record.
+server_state_get_user_by_sender(ServerState, Sender) -> lists:keyfind(Sender, 1, server_state_users(ServerState)). 
+
+%% TODO: Optimize this to get the first match.
+%% TODO: How to specify types that returns records
+channels_find_by_name(Name, Channels) ->
+	Result = lists:filter(fun (X) -> X#channel.name =:= Name end, Channels),
+	if
+		length(Result) > 0 -> hd(Result);
+		true -> false
+	end.
+
 %% @doc get channels from server_state
 server_state_channels(#server_state{channels = Channels}) -> Channels.
 
 %% @doc set channels to server_state
 server_state_channels(ServerState, UpdatedChannels) -> ServerState#server_state{channels = UpdatedChannels}.
+
+channel_users(#channel{users=Users}) -> Users.
+
+channel_users(Channel = #channel{}, UpdatedUsers) -> Channel#channel{users=UpdatedUsers}.
 
 %% @doc add user to server_state if the user is not already registered. This is business logic. 
 may_add_user_to_server_state(ServerState, User) -> 
@@ -90,6 +106,34 @@ may_add_user_to_server_state(ServerState, User) ->
 			UserList = server_state_users(ServerState),
 	 		UpdatedUsers = [User | UserList],
 			{ok, server_state_users(ServerState, UpdatedUsers)}
+	end.
+
+server_state_channels_find_by_name(ServerState, ChannelName) ->
+	ok.
+
+server_state_channels_add(Channel) ->
+	ok.
+
+
+%% Separate logic into Server Message Handling, Data Structure(Model), Business Rules.
+
+%% TODO: Refactor this to be more readable.
+add_channel_and_user_to_server_state(ServerState, ChannelName, User) ->
+	Channels = server_state_channels(ServerState),
+	Channel = channels_find_by_name(ChannelName, Channels),
+	if
+		Channel == false ->
+			NewChannel = #channel{name=ChannelName, users=[User]},
+			UpdatedChannels = [NewChannel | Channels],
+			server_state_channels(ServerState, UpdatedChannels);
+		true ->
+			%% TODO: Do a unit test of this.
+			OtherChannels = Channels -- [Channel],
+			UserList = channel_users(Channel),
+			UpdatedUsers = [User | UserList],
+			UpdatedChannel = channel_users(Channel, UpdatedUsers),
+			UpdatedChannels = [UpdatedChannel | OtherChannels],
+			server_state_channels(ServerState, UpdatedChannels)
 	end.
 
 %% @doc Handle a connect message
@@ -103,13 +147,15 @@ server_handle_connect(Sender, ServerState, Nickname) ->
 			ServerState
 	end.
 
-server_handle_list(Sender, ServerState = #server_state{channels=ChannelList}) ->
+%% TODO: Just returns the list of Channels without users.
+server_handle_list(Sender, ServerState) ->
+	ChannelList = server_state_channels(ServerState),
 	server_tell(Sender, {list_response, ChannelList}),
 	ServerState.
 
 server_handle_join(Sender, ServerState = #server_state{channels=ChannelList}, ChannelName) ->
-	UpdatedChannelList = [ChannelName | ChannelList],
-	UpdatedServerState = ServerState#server_state{channels=UpdatedChannelList},
+	User = server_state_get_user_by_sender(ServerState, Sender),
+	UpdatedServerState = add_channel_and_user_to_server_state(ServerState, ChannelName, User), 
 	server_tell(Sender, {join_response, ok}),
 	UpdatedServerState.
 
@@ -129,7 +175,6 @@ list() ->
 		{?SERVER_INSTANCE_NAME, {list_response, ChannelList}} ->
 			error_logger:info_msg("Client > Received list of channels from server ~p~n", [ChannelList])
 	end.
-
 
 join(ChannelName) ->
 	error_logger:info_msg("Client > Sending join(~s) command to server", [ChannelName]),
