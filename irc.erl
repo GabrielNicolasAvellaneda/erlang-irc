@@ -112,11 +112,18 @@ channels_find_by_name(Name, Channels) ->
 		true -> false
 	end.
 
+channel_get_name(Channel) -> Channel#channel.name.
+
 %% @doc get channels from server_state
 server_state_get_channels(#server_state{channels = Channels}) -> Channels.
 
 %% @doc set channels to server_state
 server_state_set_channels(ServerState, UpdatedChannels) -> ServerState#server_state{channels = UpdatedChannels}.
+
+server_state_add_channel(ServerState, Channel) ->
+	Channels = server_state_get_channels(ServerState),
+	UpdatedChannels = [Channel | Channels],
+	server_state_set_channels(ServerState, UpdatedChannels).
 
 channel_users(#channel{users=Users}) -> Users.
 
@@ -136,8 +143,10 @@ server_state_channels_find_by_name(ServerState, ChannelName) ->
 server_state_channels_add(Channel) ->
 	ok.
 
-
-
+%% @doc List the all the channel names in the server
+server_list_channel_names(ServerState) ->
+	Channels = server_state_get_channels(ServerState),
+	lists:map(fun channel_get_name/1, Channels).
 
 %% Separate logic into Server Message Handling, Data Structure(Model), Business Rules.
 
@@ -175,8 +184,8 @@ server_handle_connect(Sender, ServerState, Nickname) ->
 
 %% TODO: Just returns the list of Channels without users.
 server_handle_list(Sender, ServerState) ->
-	ChannelList = server_state_get_channels(ServerState),
-	server_tell(Sender, {list_response, ChannelList}),
+	ChannelNames = server_list_channel_names(ServerState),
+	server_tell(Sender, {list_response, ChannelNames}),
 	ServerState.
 
 server_handle_join(Sender, ServerState = #server_state{channels=ChannelList}, ChannelName) ->
@@ -259,6 +268,12 @@ should_set_channels_to_server_state_test() ->
 	UpdatedServerState = server_state_set_channels(ServerState, AllChannels),
 	?assert(server_state_get_channels(UpdatedServerState) =:= AllChannels).
 
+should_add_channel_to_server_state_test() ->
+	ServerState = server_state_create(),
+	Channel = server_state_create_channel("MyChannel"),
+	UpdatedServerState = server_state_add_channel(ServerState, Channel),
+	?assert(server_state_get_channels(UpdatedServerState) =:= [Channel]).
+
 %% Tests for Server business rules.
 should_only_add_user_if_user_does_not_already_exists_test() ->
 	User = {user_pid, 'Vincent'},
@@ -269,4 +284,18 @@ should_only_add_user_if_user_does_not_already_exists_test() ->
 	{ok, UpdatedServerState} = may_add_user_to_server_state(ServerState, NewUser),
 	?assert(length(server_state_get_users(UpdatedServerState)) =:= 2). 
 
+should_get_list_channels_names_test() ->
+	ServerState = server_state_create(),
+	Channel1 = server_state_create_channel("Channel 1"),
+	Channel2 = server_state_create_channel("Channel 2"),	
+	%% TODO: Use a set for managing channels? So when comparing lists we don't need take in account the ordering of the items?
+	UpdatedServerState = server_state_add_channel(server_state_add_channel(ServerState, Channel1), Channel2),
+	?assert(server_list_channel_names(UpdatedServerState) =:= ["Channel 2", "Channel 1"]). 
 
+should_only_add_channel_if_channel_does_not_already_exists_test() ->
+	%% TODO: Implement this.
+	ok.
+
+should_only_join_user_to_channel_if_user_does_not_already_joined_that_channel_test() ->
+	%% TODO: Implement this.
+	ok.
