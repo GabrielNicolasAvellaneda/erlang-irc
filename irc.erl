@@ -77,6 +77,12 @@ server_tell(To, Message) ->
 server_state_create() ->
 	#server_state{}.
 
+server_state_create_channel(ChannelName) ->
+	server_state_create_channel(ChannelName, []).
+
+server_state_create_channel(ChannelName, Users) ->
+	#channel{name=ChannelName, users=Users}.
+
 %% @doc get users from server_state 
 -spec server_state_get_users(#server_state{})->list(tuple()).
 server_state_get_users(#server_state{users = Users}) -> Users.
@@ -107,16 +113,17 @@ channels_find_by_name(Name, Channels) ->
 	end.
 
 %% @doc get channels from server_state
-server_state_channels(#server_state{channels = Channels}) -> Channels.
+server_state_get_channels(#server_state{channels = Channels}) -> Channels.
 
 %% @doc set channels to server_state
-server_state_channels(ServerState, UpdatedChannels) -> ServerState#server_state{channels = UpdatedChannels}.
+server_state_set_channels(ServerState, UpdatedChannels) -> ServerState#server_state{channels = UpdatedChannels}.
 
 channel_users(#channel{users=Users}) -> Users.
 
 channel_users(Channel = #channel{}, UpdatedUsers) -> Channel#channel{users=UpdatedUsers}.
 
 %% @doc add user to server_state if the user is not already registered. This is business logic. 
+%% TODO: Get a better name, like may_connect_user?
 may_add_user_to_server_state(ServerState, User) -> 
 	case server_state_has_user(ServerState, User) of
 	      	true -> {error, user_already_exists};
@@ -130,17 +137,19 @@ server_state_channels_add(Channel) ->
 	ok.
 
 
+
+
 %% Separate logic into Server Message Handling, Data Structure(Model), Business Rules.
 
 %% TODO: Refactor this to be more readable.
 add_channel_and_user_to_server_state(ServerState, ChannelName, User) ->
-	Channels = server_state_channels(ServerState),
+	Channels = server_state_get_channels(ServerState),
 	Channel = channels_find_by_name(ChannelName, Channels),
 	if
 		Channel == false ->
 			NewChannel = #channel{name=ChannelName, users=[User]},
 			UpdatedChannels = [NewChannel | Channels],
-			server_state_channels(ServerState, UpdatedChannels);
+			server_state_set_channels(ServerState, UpdatedChannels);
 		true ->
 			%% TODO: Do a unit test of this.
 			OtherChannels = Channels -- [Channel],
@@ -148,11 +157,13 @@ add_channel_and_user_to_server_state(ServerState, ChannelName, User) ->
 			UpdatedUsers = [User | UserList],
 			UpdatedChannel = channel_users(Channel, UpdatedUsers),
 			UpdatedChannels = [UpdatedChannel | OtherChannels],
-			server_state_channels(ServerState, UpdatedChannels)
+			server_state_set_channels(ServerState, UpdatedChannels)
 	end.
 
 %% @doc Handle a connect message
 server_handle_connect(Sender, ServerState, Nickname) ->
+	%% TODO: Encapsulate user structure?
+	%% TODO: Create different function for handling ok and error situations to remove the case?
 	case may_add_user_to_server_state(ServerState, {Sender, Nickname}) of
 		{ok, UpdatedServerState} ->
 			server_tell(Sender, connected),
@@ -164,7 +175,7 @@ server_handle_connect(Sender, ServerState, Nickname) ->
 
 %% TODO: Just returns the list of Channels without users.
 server_handle_list(Sender, ServerState) ->
-	ChannelList = server_state_channels(ServerState),
+	ChannelList = server_state_get_channels(ServerState),
 	server_tell(Sender, {list_response, ChannelList}),
 	ServerState.
 
@@ -237,6 +248,17 @@ should_add_user_to_server_state_test() ->
 	UpdatedServerState = server_state_add_user(ServerState, NewUser),
 	?assert(server_state_get_users(UpdatedServerState) =:= [NewUser]).
 
+should_get_empty_channels_for_a_newly_created_server_state_test() ->
+	ServerState = server_state_create(),
+	?assert(server_state_get_channels(ServerState) =:= []).
+
+should_set_channels_to_server_state_test() ->
+	ServerState = server_state_create(),
+	Channel = server_state_create_channel("MyChannel"),
+	AllChannels = [Channel],
+	UpdatedServerState = server_state_set_channels(ServerState, AllChannels),
+	?assert(server_state_get_channels(UpdatedServerState) =:= AllChannels).
+
 %% Tests for Server business rules.
 should_only_add_user_if_user_does_not_already_exists_test() ->
 	User = {user_pid, 'Vincent'},
@@ -246,6 +268,5 @@ should_only_add_user_if_user_does_not_already_exists_test() ->
 	NewUser = {new_user_pid, 'Sandra'},
 	{ok, UpdatedServerState} = may_add_user_to_server_state(ServerState, NewUser),
 	?assert(length(server_state_get_users(UpdatedServerState)) =:= 2). 
-
 
 
