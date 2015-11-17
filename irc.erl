@@ -31,13 +31,15 @@
 %% motd()
 %%     Returns the Message of the Day from the Server.
 %%
-%% The server process will be registered by the name "ircd"
+%% The server process will be registered by the name 'irc_server'
+%% The client process will be registered by the name 'irc_client.
 
 
 %% Separation of concerns: Client logic, Server handling, Server business rules, State model management.
 
 -module(irc).
 -export([start_server/0, server_loop/1, client/1, client_loop/1, connect/1, list/0, join/1, names/1, whois/1]).
+-author([{name, "Gabriel Avellaneda"}, {email, 'avellaneda.gabriel@gmail.com'}]).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -311,11 +313,7 @@ connect(Nickname) ->
 	end.
 
 list() ->
-	{?SERVER_INSTANCE_NAME, ?SERVER_NODE} ! {self(), list},
-	receive
-		{?SERVER_INSTANCE_NAME, {list_response, ChannelList}} ->
-			error_logger:info_msg("Client > Received list of channels from server ~p~n", [ChannelList])
-	end.
+	send_if_connected(list).
 
 -spec names(string()) -> any().
 names(ChannelName) ->
@@ -361,6 +359,8 @@ client_loop(Nickname) ->
 			await_result();
 		{whois, Nickname} ->
 			{?SERVER_INSTANCE_NAME, ?SERVER_NODE} ! {self(), whois, Nickname},
+			await_result();
+		list -> {?SERVER_INSTANCE_NAME, ?SERVER_NODE} ! {self(), list},
 			await_result()
 	end,
 	client_loop(Nickname).
