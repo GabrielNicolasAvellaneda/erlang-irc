@@ -37,7 +37,7 @@
 %% Separation of concerns: Client logic, Server handling, Server business rules, State model management.
 
 -module(irc).
--export([start_server/0, server_loop/1, client/1, client_loop/1, connect/1, list/0, join/1, names/1]).
+-export([start_server/0, server_loop/1, client/1, client_loop/1, connect/1, list/0, join/1, names/1, whois/1]).
 
 -include_lib("eunit/include/eunit.hrl").
 
@@ -50,12 +50,14 @@
 -record(user, {pid, name}).
 -record(channel, {name, users = [] :: [user()]}).
 -record(server_state, {users = [] :: [user()], channels = [] :: [channel()]}).
+-record(whois_info, {user :: user(), channels = [] :: [channel()]}).
 
 -opaque server_state() :: #server_state{}.
 -opaque channel() :: #channel{}.
 -opaque user() :: #user{}.
+-opaque whois_info() :: #whois_info{}.
 
--export_type([server_state/0, channel/0, user/0]).
+-export_type([server_state/0, channel/0, user/0, whois_info/0]).
 
 %% @doc Start the server process and register it with known name.
 start_server() ->
@@ -77,7 +79,10 @@ server_loop(ServerState) ->
 			UpdatedServerState = server_handle_join(From, ServerState, ChannelName);
 		{From, names, ChannelName} ->
 			error_logger:info_msg("Server > Received a names(~s) message", [ChannelName]),
-			UpdatedServerState = server_handle_names(From, ServerState, ChannelName)
+			UpdatedServerState = server_handle_names(From, ServerState, ChannelName);
+		{From, whois, Nickname} ->
+			error_logger:info_msg("Server > Received whois(~s) message", [Nickname]),
+			UpdatedServerState = server_handle_whois(From, ServerState, Nickname)
 	end,
 	server_loop(UpdatedServerState).
 -spec server_tell(identifier(), any()) -> any().
@@ -103,6 +108,15 @@ server_state_create_channel(ChannelName) ->
 server_state_create_channel(ChannelName, Users) ->
 	#channel{name=ChannelName, users=Users}.
 
+-spec server_state_create_whois_info(user(), [channel()]) -> whois_info().
+server_state_create_whois_info(User, Channels) -> #whois_info{user=User, channels=Channels}.
+
+-spec whois_info_get_user(whois_info()) -> user().
+whois_info_get_user(WhoisInfo) -> WhoisInfo#whois_info.user.
+
+-spec whois_info_get_channels(whois_info()) -> [channel()].
+whois_info_get_channels(WhoisInfo) -> WhoisInfo#whois_info.channels.
+
 %% @doc get users from server_state 
 -spec server_state_get_users(server_state()) -> [user()].
 server_state_get_users(#server_state{users = Users}) -> Users.
@@ -125,7 +139,7 @@ server_state_has_user(ServerState, User) ->
 	lists:any(fun (U) -> user_get_name(U) =:= Nickname end, server_state_get_users(ServerState)).
 
 -spec find(fun( (_) -> boolean()), [any()]) -> any() | 'false'. 
-find(Pred, []) -> false; 
+find(_Pred, []) -> false; 
 find(Pred, [H|Tail]) ->
 	Result = Pred(H),
 	case Result of
@@ -136,12 +150,14 @@ find(Pred, [H|Tail]) ->
 %% @doc get a user from the server_state record.
 -spec server_state_find_user_by_sender(any(), server_state()) -> user() | 'false'. 
 server_state_find_user_by_sender(Sender, ServerState) ->
-	io:format("Searching for Sender ~p in ~p", [Sender, ServerState]),
 	find(fun (X) -> X#user.pid == Sender end, server_state_get_users(ServerState)).
+
+-spec user_name_match_predicate(string()) -> fun( (user()) -> boolean()).
+user_name_match_predicate(Nickname) -> fun (User) -> user_get_name(User) =:= Nickname end.
 
 -spec server_state_find_user_by_name(string(), server_state()) -> user() | 'false'.
 server_state_find_user_by_name(Nickname, ServerState) ->
-	find(fun (X) -> X#user.name =:= Nickname end, server_state_get_users(ServerState)).
+	find(user_name_match_predicate(Nickname), server_state_get_users(ServerState)).
 
 -spec channels_find_by_name(string(), [channel()]) -> 'false' | channel(). 
 channels_find_by_name(Name, Channels) ->
@@ -150,6 +166,13 @@ channels_find_by_name(Name, Channels) ->
 		length(Result) > 0 -> hd(Result);
 		true -> false
 	end.
+
+-spec user_exists_in_channel(string(), channel()) -> boolean().
+user_exists_in_channel(Nickname, Channel) ->
+	lists:any(user_name_match_predicate(Nickname), channel_get_users(Channel)).
+
+channels_find_all_by_user_name(Nickname, Channels) ->
+	lists:filter(fun (Chan) -> user_exists_in_channel(Nickname, Chan) end, Channels).
 
 -spec channel_get_name(channel()) -> string(). 
 channel_get_name(Channel) -> Channel#channel.name.
@@ -185,7 +208,7 @@ may_add_user_to_server_state(ServerState, User) ->
 
 -spec may_list_names_in_channel(string(), server_state()) -> [string()].
 may_list_names_in_channel(ChannelName, ServerState) ->
-	%% TODO: What happens if channel not found.
+	%% TODO: Return false if the channel does not exists.
 	Channel = server_state_channels_find_by_name(ChannelName, ServerState),
 	Users = channel_get_users(Channel),
 	lists:map(fun (U) -> user_get_name(U) end, Users).
@@ -227,9 +250,7 @@ add_channel_and_user_to_server_state(ServerState, ChannelName, User) ->
 	Channels = server_state_get_channels(ServerState),
 	case channels_find_by_name(ChannelName, Channels) of
 		false ->
-			io:format("User: ~p", [User]),
 			NewChannel = server_state_create_channel(ChannelName, [User]),
-			io:format("NewChannel: ~p", [NewChannel]),
 			server_state_add_channel(ServerState, NewChannel);
 		Channel ->
 			OtherChannels = channels_remove(Channel, Channels),
@@ -237,6 +258,18 @@ add_channel_and_user_to_server_state(ServerState, ChannelName, User) ->
 			UpdatedChannels = channels_add(UpdatedChannel, OtherChannels),
 			server_state_set_channels(ServerState, UpdatedChannels)
 	end.
+
+-spec may_get_user_whois_info(server_state(), string()) -> whois_info().
+may_get_user_whois_info(ServerState, Nickname) ->
+	Channels = channels_find_all_by_user_name(Nickname, server_state_get_channels(ServerState)),
+	User = server_state_find_user_by_name(Nickname, ServerState),
+	server_state_create_whois_info(User, Channels).
+
+server_handle_whois(Sender, ServerState, Nickname) ->
+	WhoisInfo = may_get_user_whois_info(ServerState, Nickname),
+	% TODO: Handle situation when the user does not exists.
+	server_tell(Sender, {whois_response, WhoisInfo}),
+	ServerState.
 
 %% @doc Handle a connect message
 server_handle_connect(Sender, ServerState, Nickname) ->
@@ -261,11 +294,10 @@ server_handle_names(Sender, ServerState, ChannelName) ->
 	ServerState.
 
 server_handle_join(Sender, ServerState= #server_state{}, ChannelName) ->
+	% TODO: Do not join the user two times at the same channel.
 	User = server_state_find_user_by_sender(Sender, ServerState),
-	io:format("~nState: ~p, User: ~p", [ServerState, User]),
 	UpdatedServerState = add_channel_and_user_to_server_state(ServerState, ChannelName, User), 
 	server_tell(Sender, {join_response, ok}),
-	io:format("~p", [UpdatedServerState]),
 	UpdatedServerState.
 
 connect(Nickname) ->
@@ -287,11 +319,7 @@ list() ->
 
 -spec names(string()) -> any().
 names(ChannelName) ->
-	{?SERVER_INSTANCE_NAME, ?SERVER_NODE} ! {self(), names, ChannelName},
-	receive
-		{?SERVER_INSTANCE_NAME, {names_response, Names}} ->
-			error_logger:info_msg("Client > Received list of names ~p for channel ~s~n", [Names, ChannelName])
-	end.
+	send_if_connected({names, ChannelName}).
 
 send_if_connected(Message) ->
 	case whereis(?CLIENT_INSTANCE_NAME) of
@@ -302,6 +330,9 @@ send_if_connected(Message) ->
 
 join(ChannelName) ->
 	send_if_connected({join, ChannelName}).
+
+whois(Nickname) ->
+	send_if_connected({whois, Nickname}).
 
 client(Nickname) ->
 	error_logger:info_msg("Client > Sending connect command to server using Nickname ~s", [Nickname]),
@@ -324,6 +355,12 @@ client_loop(Nickname) ->
 		{join, ChannelName} ->
 			error_logger:info_msg("Client > Sending join(~s) command to server", [ChannelName]),
 			{?SERVER_INSTANCE_NAME, ?SERVER_NODE} ! {self(), join, ChannelName},
+			await_result();
+		{names, ChannelName} ->
+			{?SERVER_INSTANCE_NAME, ?SERVER_NODE} ! {self(), names, ChannelName},
+			await_result();
+		{whois, Nickname} ->
+			{?SERVER_INSTANCE_NAME, ?SERVER_NODE} ! {self(), whois, Nickname},
 			await_result()
 	end,
 	client_loop(Nickname).
@@ -416,6 +453,18 @@ should_get_list_of_names_of_users_in_channel_test() ->
 	Channel1 = server_state_create_channel(ChannelName, [User]),
 	ServerState = server_state_add_channel(server_state_create(), Channel1),
 	?assert(may_list_names_in_channel(ChannelName, ServerState) =:= ["Gabriel"]).
+
+should_get_user_whois_info_from_server_state_test() ->
+	ServerState = server_state_create(),
+	User = server_state_create_user(user_pid, "Homer"),
+	Channel1 = server_state_create_channel("Some_Channel", [User]),
+	Channel2 = server_state_create_channel("Other_Channel", [User]),
+	UpdatedServerState = server_state_add_user(ServerState, User),
+	AllChannels = [Channel1, Channel2],
+	FinalServerState = server_state_set_channels(UpdatedServerState, AllChannels),
+	WhoisInfo = may_get_user_whois_info(FinalServerState, "Homer"),
+	?assert(whois_info_get_user(WhoisInfo) =:= User),
+	?assert(whois_info_get_channels(WhoisInfo) =:= AllChannels).
 
 should_only_add_channel_if_channel_does_not_already_exists_test() ->
 	%% TODO: Implement this.
