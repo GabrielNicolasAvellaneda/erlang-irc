@@ -38,7 +38,7 @@
 %% Separation of concerns: Client logic, Server handling, Server business rules, State model management.
 
 -module(irc).
--export([start_server/0, server_loop/1, client/1, client_loop/1, connect/1, list/0, join/1, names/1, whois/1]).
+-export([start_server/0, server_loop/1, client/1, client_loop/1, connect/1, list/0, join/1, names/1, whois/1,message/2]).
 -author([{name, "Gabriel Avellaneda"}, {email, 'avellaneda.gabriel@gmail.com'}]).
 
 -include_lib("eunit/include/eunit.hrl").
@@ -71,20 +71,26 @@ start_server() ->
 server_loop(ServerState) ->
 	receive
 		{From, connect, Nickname} ->
-			error_logger:info_msg("Server > Received a connect message from ~s", [Nickname]),
+			error_logger:info_msg("Server > Received a connect message from ~s~n", [Nickname]),
 		       	UpdatedServerState = server_handle_connect(From, ServerState, Nickname);
 		{From, list} ->
 			error_logger:info_msg("Server > Received a list message~n"),
 			UpdatedServerState = server_handle_list(From, ServerState);
 		{From, join, ChannelName} ->
-			error_logger:info_msg("Server > Received a join(~s) message from(~p)", [ChannelName, From]),
+			error_logger:info_msg("Server > Received a join(~s) message from(~p)~n", [ChannelName, From]),
 			UpdatedServerState = server_handle_join(From, ServerState, ChannelName);
 		{From, names, ChannelName} ->
-			error_logger:info_msg("Server > Received a names(~s) message", [ChannelName]),
+			error_logger:info_msg("Server > Received a names(~s) message~n", [ChannelName]),
 			UpdatedServerState = server_handle_names(From, ServerState, ChannelName);
 		{From, whois, Nickname} ->
-			error_logger:info_msg("Server > Received whois(~s) message", [Nickname]),
-			UpdatedServerState = server_handle_whois(From, ServerState, Nickname)
+			error_logger:info_msg("Server > Received whois(~s) message~n", [Nickname]),
+			UpdatedServerState = server_handle_whois(From, ServerState, Nickname);
+		{From, message_to, ToNickname, Message} ->
+			error_logger:info_msg("Server > Received message(~s, ~s)~n", [ToNickname, Message]),
+			UpdatedServerState = server_handle_message(From, ServerState, ToNickname, Message);
+		Unrecognized ->
+			error_logger:info_msg("Server > Unrecognized message(~p)~n", [Unrecognized]),
+			UpdatedServerState = ServerState
 	end,
 	server_loop(UpdatedServerState).
 -spec server_tell(identifier(), any()) -> any().
@@ -101,6 +107,9 @@ server_state_create_user(Pid, Nickname) -> #user{pid=Pid, name=Nickname}.
 
 -spec user_get_name(user()) -> string().
 user_get_name(User) -> User#user.name.
+
+-spec user_get_sender(user()) -> any().
+user_get_sender(User) -> User#user.pid.
 
 -spec server_state_create_channel(string()) -> channel().
 server_state_create_channel(ChannelName) ->
@@ -267,6 +276,16 @@ may_get_user_whois_info(ServerState, Nickname) ->
 	User = server_state_find_user_by_name(Nickname, ServerState),
 	server_state_create_whois_info(User, Channels).
 
+
+server_handle_message(From, ServerState, ToNickname, Message) ->
+	%% TODO: Check if the user and nickname are the same.
+	%% TODO: Check if the ToUser does not exists.
+	FromUser = server_state_find_user_by_sender(From, ServerState),
+	ToUser = server_state_find_user_by_name(ToNickname, ServerState),
+	server_tell(user_get_sender(ToUser), {message_from, user_get_name(FromUser), Message}),
+	server_tell(From, {message_response, ok}),
+	ServerState.
+
 server_handle_whois(Sender, ServerState, Nickname) ->
 	WhoisInfo = may_get_user_whois_info(ServerState, Nickname),
 	% TODO: Handle situation when the user does not exists.
@@ -332,6 +351,9 @@ join(ChannelName) ->
 whois(Nickname) ->
 	send_if_connected({whois, Nickname}).
 
+message(Nickname, Message) ->
+	send_if_connected({message_to, Nickname, Message}).
+
 client(Nickname) ->
 	error_logger:info_msg("Client > Sending connect command to server using Nickname ~s", [Nickname]),
 	{?SERVER_INSTANCE_NAME, ?SERVER_NODE} ! {self(), connect, Nickname},
@@ -347,6 +369,10 @@ await_result() ->
 			error_logger:info_msg("Client > Received ~p from server~n", [What])
 	end.
 
+-spec format_message_from(string(), string()) -> string().
+format_message_from(Nickname, Message) ->
+	io_lib:format("*~s* ~s", [Nickname, Message]).	
+
 %% @doc client_loop forwards messages to the server
 client_loop(Nickname) ->
 	receive
@@ -361,7 +387,12 @@ client_loop(Nickname) ->
 			{?SERVER_INSTANCE_NAME, ?SERVER_NODE} ! {self(), whois, Nickname},
 			await_result();
 		list -> {?SERVER_INSTANCE_NAME, ?SERVER_NODE} ! {self(), list},
-			await_result()
+			await_result();
+		{message_to, ToNickname, Message} -> {?SERVER_INSTANCE_NAME, ?SERVER_NODE} ! {self(), message_to, ToNickname, Message},
+			await_result();
+		{?SERVER_INSTANCE_NAME, {message_from, FromNickname, Message}} -> io:format("~s~n", [format_message_from(FromNickname, Message)]);
+
+		Unrecognized -> error_logger:info_msg("Client > Unrecognized message (~p)~n", [Unrecognized])
 	end,
 	client_loop(Nickname).
 
